@@ -14,75 +14,110 @@ namespace WebApi.Controllers.Users.V1.Services
     {
         private readonly IUserRepository _userRepository;
         private readonly PasswordHasher _passwordHasher;
-        private readonly IConfiguration _configuration;
+        private readonly UserConfig _userConfig;
+        private readonly ILogger<UserService> _logger;
 
         public UserService(
             IUserRepository userRepository,
             PasswordHasher passwordHasher,
-            IConfiguration configuration)
+            UserConfig jwtConfig,
+            ILogger<UserService> logger)
         {
             _userRepository = userRepository;
             _passwordHasher = passwordHasher;
-            _configuration = configuration;
+            _userConfig = jwtConfig;
+            _logger = logger;
         }
 
         public async Task<RegisterResponse> Register(UserRegisterModel model)
         {
-            // Check if the username already exists
-            if (await _userRepository.FindByUsernameAsync(model.Username) != null || await _userRepository.FindByEmailAsync(model.Email) != null)
+            try
             {
-                return new RegisterResponse { Success = false, Message = "Username or Email already exists." };
+                _logger.LogInformation("Registering a new user with username: {Username}, email: {Email}", model.Username, model.Email);
+                if (await _userRepository.FindByUsernameAsync(model.Username) != null || await _userRepository.FindByEmailAsync(model.Email) != null)
+                {
+                    _logger.LogError("username or email already exists username: {Username}, email: {Email}", model.Username, model.Email);
+                    return new RegisterResponse { Success = false, Message = "Username or Email already exists." };
+                }
+
+                var hashedPassword = HashPassword(model.Password);
+
+                var user = new User { Username = model.Username, Email = model.Email, PasswordHash = hashedPassword, Balance = _userConfig.StartingCoins };
+                await _userRepository.AddAsync(user);
+
+                _logger.LogInformation("Success Registering a new user with username: {Username}, email: {Email}", model.Username, model.Email);
+                return new RegisterResponse
+                {
+                    Success = true,
+                    User = new UserDto
+                    {
+                        Username = user.Username,
+                        Email = user.Email,
+                        Balance = user.Balance,
+                    }
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "An error occurred while registering a new user, username: {Username}, email: {Email}", model.Username, model.Email);
+
+                return new RegisterResponse { Success = false, Message = "An error occurred during registration." };
             }
 
-            // Hash the password
-            var hashedPassword = HashPassword(model.Password);
-
-            // Create and save the new user
-            var user = new User { Username = model.Username, Email = model.Email, PasswordHash = hashedPassword, Balance = 1000 };
-            await _userRepository.AddAsync(user);
-
-            return new RegisterResponse
-            {
-                Success = true,
-                User = new UserDto
-                {
-                    Username = user.Username,
-                    Email = user.Email,
-                    Balance = user.Balance,
-                }
-            };
         }
 
         public async Task<AuthenticateResponse> Authenticate(UserAuthenticateModel model)
         {
-            var user = await _userRepository.FindByUsernameAsync(model.Username);
-
-            // Verify the password
-            if (user == null || !VerifyPassword(model.Password, user.PasswordHash))
+            try
             {
-                return new AuthenticateResponse { Success = false, Message = "Username or password is incorrect." };
+                _logger.LogInformation("Authenticating user, username: {Username}", model.Username);
+                var user = await _userRepository.FindByUsernameAsync(model.Username);
+
+                if (user == null || !VerifyPassword(model.Password, user.PasswordHash))
+                {
+                    _logger.LogInformation("Failed to authenticate user, username: {Username}", model.Username);
+                    return new AuthenticateResponse { Success = false, Message = "Username or password is incorrect." };
+                }
+
+                var token = GenerateJwtToken(user.Username);
+
+                _logger.LogInformation("Success Authenticating user with username: {Username}", model.Username);
+                return new AuthenticateResponse { Success = true, Bearer = $"Bearer {token}" };
             }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "An error occurred while authenticating user, username: {Username}", model.Username);
 
-            // Generate JWT token
-            var token = GenerateJwtToken(user.Username, _configuration);
-
-            return new AuthenticateResponse { Success = true, Bearer = $"Bearer {token}" };
+                return new AuthenticateResponse { Success = false, Message = "An error occurred during authentication" };
+            }
         }
 
-        public async Task<UserProfileModel> GetUserByUsername(string username)
+        public async Task<UserProfileResponse> GetUserProfile(string username)
         {
-            var user = await _userRepository.FindByUsernameAsync(username);
-            if (user != null)
+            try
             {
-                var result = new UserProfileModel
+                _logger.LogInformation("Getting user profile, username: {Username}", username);
+                var user = await _userRepository.FindByUsernameAsync(username);
+                if (user != null)
                 {
-                    Username = user.Username,
-                    Email = user.Email,
-                    Balance = user.Balance,
-                };
-                return result;
+                    var result = new UserProfileModel
+                    {
+                        Username = user.Username,
+                        Email = user.Email,
+                        Balance = user.Balance,
+                    };
+                    _logger.LogInformation("Success Getting user profile, username: {Username}", username);
+                    return new UserProfileResponse { Success = true, Profile = result };
+                }
+                _logger.LogInformation("Failed Getting user profile, username: {Username}", username);
+                return new UserProfileResponse { Success = false, Message = "User not found" };
             }
-            return new UserProfileModel();
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "An error occurred while getting user profile, username: {Username}", username);
+
+                return new UserProfileResponse { Success = false, Message = "An error occurred while getting user profile" };
+            }
         }
 
         private string HashPassword(string password)
@@ -97,19 +132,19 @@ namespace WebApi.Controllers.Users.V1.Services
             return passwordMatches;
         }
 
-        public static string GenerateJwtToken(string username, IConfiguration configuration)
+        public string GenerateJwtToken(string username)
         {
             var claims = new List<Claim>
         {
             new Claim(ClaimTypes.Name, username)
         };
 
-            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(configuration["Jwt:Key"]));
+            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_userConfig.Key));
             var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
             var token = new JwtSecurityToken(
                 claims: claims,
-                expires: DateTime.Now.AddHours(1),
+                expires: DateTime.Now.AddHours(_userConfig.ExpiryDurationHours),
                 signingCredentials: creds);
 
             return new JwtSecurityTokenHandler().WriteToken(token);

@@ -17,47 +17,81 @@ namespace WebApi.Controllers.Users.V1
             _userService = userService;
         }
 
-        // POST: api/users/register
+        /// <summary>
+        /// Registers a new user with the provided user details.
+        /// </summary>
+        /// <param name="model">The user registration details, including username, email, and password.</param>
+        /// <returns>A <see cref="RegisterResponse"/> object containing the registration result. 
+        /// Success is true if registration is successful, along with user details. 
+        /// If unsuccessful, Success is false with an error message.</returns>
+        /// <remarks>
+        /// This method checks for existing users with the same username or email to prevent duplicates.
+        /// It hashes the password for secure storage and logs the process at various stages.
+        /// Exceptions during registration are caught and logged, returning a generic error message to the caller.
+        /// </remarks>
         [HttpPost("register")]
         public async Task<IActionResult> RegisterAsync([FromBody] UserRegisterModel model)
         {
             var response = await _userService.Register(model);
-            if (response.Success)
+            if (response != null && response.Success)
             {
-                return Ok(response);
+                return Ok(response.User);
             }
-            return BadRequest(response.Message);
+            return BadRequest(response?.Message);
         }
 
-        // POST: api/users/authenticate
+        /// <summary>
+        /// Authenticates a user based on the provided username and password.
+        /// </summary>
+        /// <param name="model">The user's login credentials.</param>
+        /// <returns>A task that represents the asynchronous operation. 
+        /// The task result is an <see cref="AuthenticateResponse"/> that contains the JWT token if authentication is successful.</returns>
+        /// <exception cref="Exception">Thrown if an unexpected error occurs during the authentication process.</exception>
+        /// <remarks>
+        /// Verifies the user's credentials against the stored hash. If successful, generates a JWT token.
+        /// This process is logged.
+        /// </remarks>
         [HttpPost("authenticate")]
         public async Task<IActionResult> AuthenticateAsync([FromBody] UserAuthenticateModel model)
         {
             var response = await _userService.Authenticate(model);
-            if (response.Success)
+            if (response != null && response.Success)
             {
-                return Ok(response);
+                return Ok(response.Bearer);
             }
-            return BadRequest(response.Message);
+            return BadRequest(response?.Message);
         }
 
-        // GET: api/users/profile
+        /// <summary>
+        /// Gets user profile based on username.
+        /// </summary>
+        /// <param name="username">The user's username.</param>
+        /// <returns>A task that represents the asynchronous operation. 
+        /// The task result is an <see cref="UserProfileResponse"/> that contains the User Profile if authentication is successful.</returns>
+        /// <exception cref="Exception">Thrown if an unexpected error occurs during the retrieval process.</exception>
+        /// <remarks>
+        /// Tries to find the user profile based on username.
+        /// This process is logged.
+        /// </remarks>
         [Authorize]
         [HttpGet("profile")]
         public async Task<IActionResult> GetUserProfileAsync()
         {
-            var username = User.Identity.Name;
-
-            // Use the username to fetch the user details from your service
-            var user = await _userService.GetUserByUsername(username);
-
-            if (user != null)
+            var username = User?.Identity?.Name;
+            if (username == null)
             {
-                return Ok(user);
+                return BadRequest("invalid token");
+            }
+
+            var response = await _userService.GetUserProfile(username);
+
+            if (response != null && response.Success)
+            {
+                return Ok(response.Profile);
             }
 
 
-            return NotFound("User not found.");
+            return NotFound(response?.Message);
         }
     }
 }

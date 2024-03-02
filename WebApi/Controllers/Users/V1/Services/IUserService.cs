@@ -6,6 +6,6 @@ namespace WebApi.Controllers.Users.V1.Services
     {
         Task<RegisterResponse> Register(UserRegisterModel model);
         Task<AuthenticateResponse> Authenticate(UserAuthenticateModel model);
-        Task<UserProfileModel> GetUserByUsername(string username);
+        Task<UserProfileResponse> GetUserProfile(string username);
     }
 }

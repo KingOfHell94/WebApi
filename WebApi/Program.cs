@@ -4,6 +4,7 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using System.Text;
 using WebApi.Controllers.Bets.V1.Services;
+using WebApi.Controllers.Users.V1.Models;
 using WebApi.Controllers.Users.V1.Repositories;
 using WebApi.Controllers.Users.V1.Services;
 using WebApi.Database;
@@ -13,15 +14,11 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container.
 
 builder.Services.AddControllers();
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
-// Configure DbContext
 builder.Services.AddDbContext<WebApiDbContext>(options =>
     options.UseMySql(builder.Configuration.GetConnectionString("WebApiConnectionString"), ServerVersion.AutoDetect(builder.Configuration.GetConnectionString("WebApiConnectionString"))));
 
-// Configure repositories
 builder.Services.AddScoped<IUserRepository, UserRepository>();
-// Other services
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IBetService, BetService>();
 builder.Services.AddSingleton<PasswordHasher>(sp =>
@@ -73,6 +70,11 @@ builder.Services.AddSwaggerGen(c =>
         }
         });
 });
+
+var userConfig = new UserConfig();
+builder.Configuration.GetSection("UserConfig").Bind(userConfig);
+builder.Services.AddSingleton(userConfig);
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
